@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>US Wildfire Intelligence Dashboard</title>
+
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+
+<style>
+:root {
+  --bg: #05070b;
+  --panel: rgba(9, 13, 20, 0.88);
+  --panel-strong: rgba(14, 20, 30, 0.96);
+  --card: rgba(255, 255, 255, 0.055);
+  --card-hover: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --text: #f4f7fb;
+  --muted: #93a0b4;
+  --muted2: #697386;
+  --red: #ff3b30;
+  --orange: #ff9f0a;
+  --gray: #6b7280;
+  --green: #34d399;
+  --yellow: #facc15;
+  --blue: #60a5fa;
+  --shadow: 0 18px 60px rgba(0,0,0,0.55);
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; width: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--sans); }
+#map { position: fixed; inset: 0; }
+
+.glass {
+  background: var(--panel);
+  backdrop-filter: blur(22px) saturate(1.2);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+#left-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 372px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+#left-panel::-webkit-scrollbar, #right-panel::-webkit-scrollbar { width: 5px; }
+#left-panel::-webkit-scrollbar-thumb, #right-panel::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; }
+
+.header { padding: 16px; }
+.header-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.title h1 { font-size: 18px; line-height: 1.15; font-weight: 800; letter-spacing: -0.4px; }
+.title p { color: var(--muted); font-size: 12px; margin-top: 5px; line-height: 1.4; }
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  border-radius: 999px;
+  color: #bbf7d0;
+  background: rgba(52, 211, 153, 0.08);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.live-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--green);
+  box-shadow: 0 0 12px var(--green);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.8); } }
+
+.section { padding: 15px; }
+.section-title {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 11px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  transition: .2s ease;
+}
+.stat-card:hover { background: var(--card-hover); border-color: var(--border-strong); transform: translateY(-1px); }
+.stat-card.wide { grid-column: span 2; }
+.stat-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; font-family: var(--mono); line-height: 1.25; }
+.stat-value { margin-top: 6px; font-size: 25px; font-weight: 800; font-family: var(--mono); letter-spacing: -1px; line-height: 1; }
+.stat-sub { margin-top: 6px; font-size: 10px; color: var(--muted2); }
+.stat-red .stat-value { color: var(--red); text-shadow: 0 0 18px rgba(255,59,48,.25); }
+.stat-orange .stat-value { color: var(--orange); text-shadow: 0 0 18px rgba(255,159,10,.18); }
+.stat-gray .stat-value { color: #aab4c5; }
+.stat-yellow .stat-value { color: var(--yellow); }
+.stat-blue .stat-value { color: var(--blue); }
+
+.controls { display: flex; flex-direction: column; gap: 10px; }
+.field label, .slider-head span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--mono);
+  margin-bottom: 5px;
+}
+select, input[type="text"] {
+  width: 100%;
+  background: rgba(255,255,255,0.065);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 10px 11px;
+  font-size: 12px;
+  outline: none;
+}
+select:focus, input[type="text"]:focus { border-color: rgba(96,165,250,.45); box-shadow: 0 0 0 3px rgba(96,165,250,.10); }
+
+.slider-head { display: flex; align-items: center; justify-content: space-between; }
+.slider-head strong { font-family: var(--mono); font-size: 12px; color: var(--text); }
+input[type="range"] { -webkit-appearance: none; width: 100%; height: 5px; border-radius: 20px; background: rgba(255,255,255,.10); outline: none; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--red); box-shadow: 0 0 16px rgba(255,59,48,.38); cursor: pointer; }
+
+.btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button {
+  border: 0;
+  border-radius: 12px;
+  padding: 11px 12px;
+  cursor: pointer;
+  font-weight: 800;
+  color: white;
+  transition: .18s ease;
+}
+button:hover { transform: translateY(-1px); opacity: .92; }
+button:active { transform: translateY(0) scale(.99); }
+button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.btn-primary { background: linear-gradient(135deg, #ff3b30, #ff7a18); }
+.btn-secondary { background: rgba(255,255,255,.08); border: 1px solid var(--border); color: var(--text); }
+#last-update { margin-top: 9px; text-align: center; color: var(--muted2); font-family: var(--mono); font-size: 10px; }
+
+.legend { display: flex; flex-direction: column; gap: 8px; }
+.legend-row { display: flex; align-items: center; gap: 9px; color: #d9deea; font-size: 12px; }
+.dot { width: 11px; height: 11px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,.45); flex: 0 0 auto; }
+.note { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+
+#fire-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; padding-right: 2px; }
+.fire-item {
+  background: rgba(255,255,255,.055);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 10px;
+  cursor: pointer;
+  transition: .18s ease;
+}
+.fire-item:hover { background: rgba(255,255,255,.085); border-color: var(--border-strong); transform: translateX(2px); }
+.fire-item-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fire-item-title { font-weight: 800; font-size: 12px; }
+.fire-item-meta { margin-top: 6px; color: var(--muted); font-size: 11px; font-family: var(--mono); display: flex; gap: 10px; flex-wrap: wrap; }
+.badge { padding: 4px 8px; border-radius: 999px; font-family: var(--mono); font-size: 9px; font-weight: 800; white-space: nowrap; }
+.badge-high { background: rgba(255,59,48,.15); color: #ffb3ad; border: 1px solid rgba(255,59,48,.35); }
+.badge-possible { background: rgba(255,159,10,.13); color: #ffd38a; border: 1px solid rgba(255,159,10,.32); }
+.badge-low { background: rgba(107,114,128,.18); color: #cbd5e1; border: 1px solid rgba(107,114,128,.32); }
+
+#right-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 340px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  z-index: 10;
+  transform: translateX(370px);
+  transition: transform .34s cubic-bezier(.2,.8,.2,1);
+}
+#right-panel.open { transform: translateX(0); }
+.detail { padding: 16px; }
+.detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 13px; }
+.detail-head h2 { font-size: 16px; line-height: 1.2; }
+.close-btn { width: 30px; height: 30px; padding: 0; border-radius: 9px; background: rgba(255,255,255,.08); color: var(--muted); border: 1px solid var(--border); }
+.prob-box { background: rgba(255,255,255,.055); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin: 12px 0; }
+.prob-label { color: var(--muted); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .7px; }
+.prob-value { margin-top: 7px; font-size: 28px; font-family: var(--mono); font-weight: 800; }
+.bar-bg { margin-top: 8px; height: 9px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; transition: width .55s ease; }
+.detail-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.detail-table tr { border-bottom: 1px solid var(--border); }
+.detail-table td { padding: 8px 0; font-size: 12px; }
+.detail-table td:first-child { color: var(--muted); font-family: var(--mono); font-size: 10px; width: 45%; }
+.detail-table td:last-child { text-align: right; font-weight: 700; }
+
+#loading {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(5,7,11,.72);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  transition: opacity .3s;
+}
+#loading.hidden { opacity: 0; pointer-events: none; }
+.spinner { width: 44px; height: 44px; border: 3px solid rgba(255,255,255,.15); border-top-color: var(--red); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+
+#error-box {
+  position: absolute;
+  left: 50%;
+  top: 20px;
+  transform: translateX(-50%);
+  max-width: 560px;
+  z-index: 120;
+  display: none;
+  background: rgba(127,29,29,.94);
+  border: 1px solid rgba(255,255,255,.20);
+  color: white;
+  padding: 12px 14px;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+
+.mapboxgl-popup-content {
+  background: rgba(9,13,20,.96) !important;
+  border: 1px solid var(--border-strong) !important;
+  color: var(--text) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow) !important;
+  padding: 0 !important;
+  width: 250px;
+}
+.mapboxgl-popup-tip { border-top-color: rgba(9,13,20,.96) !important; border-bottom-color: rgba(9,13,20,.96) !important; }
+.popup-card { padding: 13px; }
+.popup-card h3 { font-size: 13px; margin-bottom: 7px; }
+.popup-card p { font-size: 11px; color: var(--muted); line-height: 1.45; margin-top: 8px; }
+.popup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 9px; }
+.popup-mini { background: rgba(255,255,255,.06); border-radius: 10px; padding: 7px; }
+.popup-mini span { display: block; color: var(--muted); font-family: var(--mono); font-size: 9px; }
+.popup-mini strong { display: block; margin-top: 3px; font-family: var(--mono); font-size: 12px; }
+
+@media (max-width: 900px) {
+  #left-panel { width: calc(100vw - 24px); left: 12px; top: 12px; max-height: 48vh; }
+  #right-panel { width: calc(100vw - 24px); right: 12px; top: auto; bottom: 12px; max-height: 42vh; transform: translateY(calc(100% + 24px)); }
+  #right-panel.open { transform: translateY(0); }
+}
+</style>
+</head>
+
+<body>
+<div id="map"></div>
+<div id="error-box"></div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Fetching NASA FIRMS satellite detections…</div>
+</div>
+
+<aside id="left-panel">
+  <section class="glass header">
+    <div class="header-top">
+      <div class="title">
+        <h1>🛰️ US Wildfire Intelligence</h1>
+        <p>AI-assisted NASA FIRMS thermal anomaly validation with clustering, confidence scoring, and Mapbox visualization.</p>
+      </div>
+      <div class="live-pill">LIVE</div>
+    </div>
+  </section>
+
+  <section class="glass section">
+    <div class="section-title"><span>Detection Summary</span><span id="active-count">0 visible</span></div>
+    <div class="stats-grid">
+      <div class="stat-card wide stat-blue"><div class="stat-label">Total Satellite Detections</div><div class="stat-value" id="s-total">—</div><div class="stat-sub">Filtered view updates live</div></div>
+      <div class="stat-card"><div class="stat-label">New</div><div class="stat-value" id="s-new">—</div></div>
+      <div class="stat-card"><div class="stat-label">Existing</div><div class="stat-value" id="s-existing">—</div></div>
+      <div class="stat-card stat-red"><div class="stat-label">High Confidence</div><div class="stat-value" id="s-high">—</div></div>
+      <div class="stat-card stat-orange"><div class="stat-label">Possible Fire</div><div class="stat-value" id="s-possible">—</div></div>
+      <div class="stat-card stat-gray wide"><div class="stat-label">Low Confidence / Likely False Positive</div><div class="stat-value" id="s-low">—</div></div>
+      <div class="stat-card stat-yellow"><div class="stat-label">Highest FRP</div><div class="stat-value" id="s-frp">—</div><div class="stat-sub">MW</div></div>
+      <div class="stat-card"><div class="stat-label">Average AI Probability</div><div class="stat-value" id="s-avgml">—</div></div>
+    </div>
+  </section>
+
+  <section class="glass section">
+    <div class="section-title">Filters</div>
+    <div class="controls">
+      <div class="field"><label>Search UID / satellite / instrument</label><input id="f-search" type="text" placeholder="Example: VIIRS, SNPP, UID…" /></div>
+      <div class="field"><label>Fire Status</label><select id="f-status"><option value="all">All statuses</option><option value="new">New only</option><option value="existing">Existing only</option></select></div>
+      <div class="field"><label>AI Classification</label><select id="f-label"><option value="all">All AI labels</option><option value="high_confidence_wildfire">High confidence wildfire</option><option value="possible_fire">Possible fire</option><option value="low_confidence_or_false_positive">Low confidence / likely false positive</option></select></div>
+      <div class="field"><label>NASA Confidence</label><select id="f-nasa"><option value="all">All NASA confidence</option><option value="high">High</option><option value="nominal">Nominal</option><option value="low">Low</option></select></div>
+      <div class="slider"><div class="slider-head"><span>Minimum AI Probability</span><strong id="v-ml">0%</strong></div><input id="f-ml" type="range" min="0" max="100" step="1" value="0" /></div>
+      <div class="slider"><div class="slider-head"><span>Minimum FRP</span><strong id="v-frp">0 MW</strong></div><input id="f-frp" type="range" min="0" max="500" step="5" value="0" /></div>
+      <div class="slider"><div class="slider-head"><span>Minimum Cluster Size</span><strong id="v-cluster">1</strong></div><input id="f-cluster" type="range" min="1" max="25" step="1" value="1" /></div>
+    </div>
+  </section>
+
+  <section class="glass section">
+    <div class="btn-row">
+      <button class="btn-primary" id="refresh-btn" onclick="refreshFireData()">Refresh Live Data</button>
+      <button class="btn-secondary" onclick="resetFilters()">Reset Filters</button>
+    </div>
+    <div id="last-update">Never refreshed</div>
+  </section>
+
+  <section class="glass section">
+    <div class="section-title">Highest Priority Visible Detections</div>
+    <div id="fire-list"></div>
+  </section>
+
+  <section class="glass section">
+    <div class="section-title">Legend</div>
+    <div class="legend">
+      <div class="legend-row"><span class="dot" style="background:#ff3b30; box-shadow:0 0 12px rgba(255,59,48,.55)"></span>High confidence wildfire</div>
+      <div class="legend-row"><span class="dot" style="background:#ff9f0a; box-shadow:0 0 12px rgba(255,159,10,.45)"></span>Possible fire</div>
+      <div class="legend-row"><span class="dot" style="background:#6b7280"></span>Low confidence / likely false positive</div>
+    </div>
+    <div class="note">NASA FIRMS detects satellite thermal anomalies, not officially confirmed wildfire perimeters. This dashboard uses rule-based and optional ML scoring for prioritization.</div>
+  </section>
+</aside>
+
+<aside id="right-panel">
+  <section class="glass detail">
+    <div class="detail-head">
+      <div><h2>Detection Detail</h2><div style="color:var(--muted);font-size:11px;margin-top:4px;">AI-assisted satellite detection</div></div>
+      <button class="close-btn" onclick="closeDetail()">✕</button>
+    </div>
+    <div id="detail-badge"></div>
+    <div class="prob-box">
+      <div class="prob-label">AI Wildfire Probability</div>
+      <div class="prob-value" id="detail-prob">—</div>
+      <div class="bar-bg"><div class="bar-fill" id="detail-bar" style="width:0%;background:var(--gray)"></div></div>
+    </div>
+    <table class="detail-table"><tbody id="detail-table-body"></tbody></table>
+    <div class="note">This is not an official emergency alert. Validate with official fire agencies, local authorities, NIFC/state fire perimeters, and field reports.</div>
+  </section>
+</aside>
+
+<script>
+mapboxgl.accessToken = "{{ mapbox_token }}";
+
+const LABELS = {
+  high_confidence_wildfire: { text: "High Confidence Wildfire", color: "#ff3b30", badge: "badge-high" },
+  possible_fire: { text: "Possible Fire", color: "#ff9f0a", badge: "badge-possible" },
+  low_confidence_or_false_positive: { text: "Low Confidence / Likely False Positive", color: "#6b7280", badge: "badge-low" }
+};
+
+const map = new mapboxgl.Map({
+  container: "map",
+  style: "mapbox://styles/mapbox/dark-v11",
+  center: [-98, 39],
+  zoom: 3.45,
+  pitch: 0,
+  bearing: 0
+});
+
+map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "bottom-right");
+map.addControl(new mapboxgl.ScaleControl({ maxWidth: 140, unit: "imperial" }), "bottom-left");
+
+let allData = { type: "FeatureCollection", features: [] };
+let activePopup = null;
+
+function safeNum(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function labelInfo(label) {
+  return LABELS[label] || { text: label || "Unknown", color: "#6b7280", badge: "badge-low" };
+}
+
+function formatTimeUTC(value) {
+  if (!value) return "—";
+  const raw = String(value).padStart(4, "0");
+  return raw.replace(/^(\d{2})(\d{2})$/, "$1:$2 UTC");
+}
+
+function showLoading(message = "Fetching NASA FIRMS satellite detections…") {
+  document.getElementById("loading-text").textContent = message;
+  document.getElementById("loading").classList.remove("hidden");
+  document.getElementById("refresh-btn").disabled = true;
+}
+
+function hideLoading() {
+  document.getElementById("loading").classList.add("hidden");
+  document.getElementById("refresh-btn").disabled = false;
+}
+
+function showError(message) {
+  const box = document.getElementById("error-box");
+  box.textContent = message;
+  box.style.display = "block";
+  setTimeout(() => box.style.display = "none", 7000);
+}
+
+function getFilterValues() {
+  return {
+    search: document.getElementById("f-search").value.trim().toLowerCase(),
+    status: document.getElementById("f-status").value,
+    label: document.getElementById("f-label").value,
+    nasa: document.getElementById("f-nasa").value,
+    minMl: safeNum(document.getElementById("f-ml").value) / 100,
+    minFrp: safeNum(document.getElementById("f-frp").value),
+    minCluster: safeNum(document.getElementById("f-cluster").value, 1)
+  };
+}
+
+function filteredFeatures() {
+  const f = getFilterValues();
+  return allData.features.filter(feature => {
+    const p = feature.properties || {};
+    const searchText = [p.fire_uid, p.satellite, p.instrument, p.final_label, p.nasa_confidence, p.date].join(" ").toLowerCase();
+    if (f.search && !searchText.includes(f.search)) return false;
+    if (f.status !== "all" && p.status !== f.status) return false;
+    if (f.label !== "all" && p.final_label !== f.label) return false;
+    if (f.nasa !== "all" && String(p.nasa_confidence || p.confidence || "").toLowerCase() !== f.nasa) return false;
+    if (safeNum(p.ml_probability) < f.minMl) return false;
+    if (safeNum(p.frp) < f.minFrp) return false;
+    if (safeNum(p.cluster_size, 1) < f.minCluster) return false;
+    return true;
+  });
+}
+
+function updateStats(collection) {
+  const features = collection.features;
+  const n = features.length;
+  const count = (predicate) => features.filter(predicate).length;
+  const maxFrp = n ? Math.max(...features.map(f => safeNum(f.properties.frp))) : 0;
+  const avgMl = n ? features.reduce((sum, f) => sum + safeNum(f.properties.ml_probability), 0) / n : 0;
+
+  document.getElementById("active-count").textContent = `${n.toLocaleString()} visible`;
+  document.getElementById("s-total").textContent = n.toLocaleString();
+  document.getElementById("s-new").textContent = count(f => f.properties.status === "new").toLocaleString();
+  document.getElementById("s-existing").textContent = count(f => f.properties.status === "existing").toLocaleString();
+  document.getElementById("s-high").textContent = count(f => f.properties.final_label === "high_confidence_wildfire").toLocaleString();
+  document.getElementById("s-possible").textContent = count(f => f.properties.final_label === "possible_fire").toLocaleString();
+  document.getElementById("s-low").textContent = count(f => f.properties.final_label === "low_confidence_or_false_positive").toLocaleString();
+  document.getElementById("s-frp").textContent = maxFrp.toFixed(1);
+  document.getElementById("s-avgml").textContent = `${Math.round(avgMl * 100)}%`;
+}
+
+function updateFireList(features) {
+  const container = document.getElementById("fire-list");
+  const top = [...features]
+    .sort((a, b) => {
+      const ap = a.properties, bp = b.properties;
+      return (safeNum(bp.ml_probability) * 1000 + safeNum(bp.frp) + Math.sqrt(safeNum(bp.cluster_size, 1)) * 12) -
+             (safeNum(ap.ml_probability) * 1000 + safeNum(ap.frp) + Math.sqrt(safeNum(ap.cluster_size, 1)) * 12);
+    })
+    .slice(0, 8);
+
+  if (!top.length) {
+    container.innerHTML = `<div class="note" style="margin-top:0;border-top:0;padding-top:0;">No visible detections match the current filters.</div>`;
+    return;
+  }
+
+  container.innerHTML = top.map((feature, index) => {
+    const p = feature.properties;
+    const info = labelInfo(p.final_label);
+    const prob = Math.round(safeNum(p.ml_probability) * 100);
+    return `<div class="fire-item" onclick="focusFeatureByUid('${p.fire_uid}')">
+      <div class="fire-item-top">
+        <div class="fire-item-title">#${index + 1} · ${info.text}</div>
+        <span class="badge ${info.badge}">${prob}%</span>
+      </div>
+      <div class="fire-item-meta"><span>FRP ${safeNum(p.frp).toFixed(1)} MW</span><span>Cluster ${p.cluster_size || 1}</span><span>${p.date || "—"}</span></div>
+    </div>`;
+  }).join("");
+}
+
+function applyFilters() {
+  const features = filteredFeatures();
+  const collection = { type: "FeatureCollection", features };
+  updateStats(collection);
+  updateFireList(features);
+  if (map.getSource("fires")) map.getSource("fires").setData(collection);
+}
+
+function setupLayers(collection) {
+  if (map.getSource("fires")) {
+    map.getSource("fires").setData(collection);
+    return;
+  }
+
+  map.addSource("fires", { type: "geojson", data: collection });
+
+  map.addLayer({
+    id: "fire-glow",
+    type: "circle",
+    source: "fires",
+    paint: {
+      "circle-radius": ["+", ["interpolate", ["linear"], ["get", "frp"], 0, 6, 50, 10, 150, 18, 500, 28], ["*", ["sqrt", ["coalesce", ["get", "cluster_size"], 1]], 0.12]],
+      "circle-color": ["match", ["get", "final_label"], "high_confidence_wildfire", "#ff3b30", "possible_fire", "#ff9f0a", "#6b7280"],
+      "circle-opacity": ["interpolate", ["linear"], ["get", "ml_probability"], 0, 0.03, 0.5, 0.08, 1, 0.14],
+      "circle-blur": 1
+    }
+  });
+
+  map.addLayer({
+    id: "fire-layer",
+    type: "circle",
+    source: "fires",
+    paint: {
+      "circle-radius": ["+", ["interpolate", ["linear"], ["get", "frp"], 0, 4, 20, 6, 50, 9, 150, 14, 300, 18, 500, 24], ["*", ["sqrt", ["coalesce", ["get", "cluster_size"], 1]], 0.08]],
+      "circle-color": ["match", ["get", "final_label"], "high_confidence_wildfire", "#ff3b30", "possible_fire", "#ff9f0a", "#6b7280"],
+      "circle-opacity": ["interpolate", ["linear"], ["get", "ml_probability"], 0, 0.55, 0.5, 0.82, 1, 0.96],
+      "circle-stroke-color": "rgba(255,255,255,0.72)",
+      "circle-stroke-width": ["interpolate", ["linear"], ["get", "ml_probability"], 0, 0.7, 1, 1.7]
+    }
+  });
+
+  map.addLayer({
+    id: "fire-selected",
+    type: "circle",
+    source: "fires",
+    paint: {
+      "circle-radius": ["+", ["interpolate", ["linear"], ["get", "frp"], 0, 8, 50, 12, 150, 18, 300, 23, 500, 28], ["*", ["sqrt", ["coalesce", ["get", "cluster_size"], 1]], 0.10]],
+      "circle-color": "transparent",
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 3,
+      "circle-opacity": 1
+    },
+    filter: ["==", "fire_uid", ""]
+  });
+
+  map.on("mouseenter", "fire-layer", () => map.getCanvas().style.cursor = "pointer");
+  map.on("mouseleave", "fire-layer", () => map.getCanvas().style.cursor = "");
+  map.on("click", "fire-layer", (e) => {
+    if (!e.features?.length) return;
+    const feature = e.features[0];
+    selectFeature(feature, true);
+  });
+
+  map.on("click", (e) => {
+    const found = map.queryRenderedFeatures(e.point, { layers: ["fire-layer"] });
+    if (!found.length) {
+      map.setFilter("fire-selected", ["==", "fire_uid", ""]);
+      closeDetail();
+      if (activePopup) activePopup.remove();
+    }
+  });
+}
+
+function popupHtml(p) {
+  const info = labelInfo(p.final_label);
+  const prob = Math.round(safeNum(p.ml_probability) * 100);
+  return `<div class="popup-card">
+    <h3 style="color:${info.color}">${info.text}</h3>
+    <span class="badge ${info.badge}">${prob}% AI probability</span>
+    <div class="popup-grid">
+      <div class="popup-mini"><span>FRP</span><strong>${safeNum(p.frp).toFixed(1)} MW</strong></div>
+      <div class="popup-mini"><span>Cluster</span><strong>${p.cluster_size || 1}</strong></div>
+      <div class="popup-mini"><span>NASA Conf.</span><strong>${p.nasa_confidence || p.confidence || "—"}</strong></div>
+      <div class="popup-mini"><span>Status</span><strong>${p.status || "—"}</strong></div>
+    </div>
+    <p>Satellite thermal anomaly only. Clicked detection is also opened in the detail panel.</p>
+  </div>`;
+}
+
+function selectFeature(feature, showPopup = false) {
+  const p = feature.properties || {};
+  const coords = feature.geometry.coordinates;
+  map.setFilter("fire-selected", ["==", "fire_uid", p.fire_uid || ""]);
+  showDetail(p);
+  map.easeTo({ center: coords, zoom: Math.max(map.getZoom(), 6), duration: 850 });
+  if (showPopup) {
+    if (activePopup) activePopup.remove();
+    activePopup = new mapboxgl.Popup({ closeButton: true, closeOnClick: false, offset: 16 })
+      .setLngLat(coords)
+      .setHTML(popupHtml(p))
+      .addTo(map);
+  }
+}
+
+function focusFeatureByUid(uid) {
+  const feature = allData.features.find(f => f.properties.fire_uid === uid);
+  if (feature) selectFeature(feature, true);
+}
+
+function showDetail(p) {
+  const info = labelInfo(p.final_label);
+  const prob = Math.round(safeNum(p.ml_probability) * 100);
+  document.getElementById("detail-badge").innerHTML = `<span class="badge ${info.badge}">${info.text}</span>`;
+  document.getElementById("detail-prob").textContent = `${prob}%`;
+  document.getElementById("detail-prob").style.color = info.color;
+  document.getElementById("detail-bar").style.width = `${prob}%`;
+  document.getElementById("detail-bar").style.background = info.color;
+
+  const rows = [
+    ["Rule Label", String(p.rule_label || "—").replaceAll("_", " ")],
+    ["Rule Score", safeNum(p.rule_score).toFixed(3)],
+    ["NASA Confidence", p.nasa_confidence || p.confidence || "—"],
+    ["FRP", `${safeNum(p.frp).toFixed(1)} MW`],
+    ["Brightness", `${safeNum(p.brightness).toFixed(1)} K`],
+    ["Cluster ID", p.cluster_id ?? "—"],
+    ["Cluster Size", p.cluster_size || 1],
+    ["Status", p.status || "—"],
+    ["Date", p.date || "—"],
+    ["Time", formatTimeUTC(p.time)],
+    ["Satellite", p.satellite || "—"],
+    ["Instrument", p.instrument || "—"],
+    ["Detection UID", p.fire_uid ? `${String(p.fire_uid).slice(0, 12)}…` : "—"]
+  ];
+
+  document.getElementById("detail-table-body").innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+  document.getElementById("right-panel").classList.add("open");
+}
+
+function closeDetail() {
+  document.getElementById("right-panel").classList.remove("open");
+}
+
+function resetFilters() {
+  document.getElementById("f-search").value = "";
+  document.getElementById("f-status").value = "all";
+  document.getElementById("f-label").value = "all";
+  document.getElementById("f-nasa").value = "all";
+  document.getElementById("f-ml").value = 0;
+  document.getElementById("f-frp").value = 0;
+  document.getElementById("f-cluster").value = 1;
+  updateSliderLabels();
+  applyFilters();
+}
+
+function updateSliderLabels() {
+  document.getElementById("v-ml").textContent = `${document.getElementById("f-ml").value}%`;
+  document.getElementById("v-frp").textContent = `${document.getElementById("f-frp").value} MW`;
+  document.getElementById("v-cluster").textContent = document.getElementById("f-cluster").value;
+}
+
+["f-search", "f-status", "f-label", "f-nasa", "f-ml", "f-frp", "f-cluster"].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener(id === "f-search" ? "input" : "change", () => { updateSliderLabels(); applyFilters(); });
+  if (el.type === "range") el.addEventListener("input", () => { updateSliderLabels(); applyFilters(); });
+});
+
+async function refreshFireData() {
+  showLoading("Fetching NASA FIRMS satellite detections…");
+  try {
+    const response = await fetch("/api/fires", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
+    allData = data?.features ? data : { type: "FeatureCollection", features: [] };
+    const features = filteredFeatures();
+    const collection = { type: "FeatureCollection", features };
+    updateStats(collection);
+    updateFireList(features);
+    setupLayers(collection);
+    updateSliderLabels();
+    document.getElementById("last-update").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+  } catch (error) {
+    showError(`Unable to load wildfire detections: ${error.message}`);
+  } finally {
+    hideLoading();
+  }
+}
+
+map.on("load", () => {
+  refreshFireData();
+  setInterval(refreshFireData, 300000);
+});
+</script>
+</body>
+</html>
