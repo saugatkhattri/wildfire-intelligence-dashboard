@@ -1,4 +1,4 @@
-# 🔥 Wildfire Intelligence Dashboard
+#  Wildfire Intelligence Dashboard
 
 AI-assisted wildfire intelligence dashboard built using NASA FIRMS satellite detections, Flask, Mapbox GL JS, DBSCAN clustering, and rule-based / machine learning confidence scoring.
 
@@ -38,7 +38,7 @@ All detections should be validated using official wildfire agencies, emergency m
 
 ---
 
-# 🧠 System Architecture
+#  System Architecture
 
 ## Backend
 
@@ -94,7 +94,7 @@ The platform performs the following workflow:
 
 ---
 
-# 🚧 Planned Future Improvements
+#  Planned Future Improvements
 
 Future development ideas include:
 
@@ -220,7 +220,7 @@ This project is released for educational and research purposes.
 
 ---
 
-# 👨‍💻 Author
+# Author
 
 Saugat Khattri
 GIS Graduate Student
